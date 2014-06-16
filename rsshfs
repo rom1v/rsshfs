@@ -35,6 +35,10 @@ else
     qall=$(quote "$@")
 
     printf "Mounting '$lpath' on '$rhost:$rpath'...\n"
-    dpipe /usr/lib/openssh/sftp-server = \
-      ssh "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall"
+    fifo=/tmp/rsshfs-$$
+    rm -f "$fifo"
+    mkfifo -m600 "$fifo" &&
+    < "$fifo" /usr/lib/openssh/sftp-server |
+      ssh "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall" > "$fifo"
+    rm "$fifo"
 fi

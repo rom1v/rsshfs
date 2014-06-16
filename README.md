@@ -5,10 +5,6 @@ See <http://blog.rom1v.com/2014/06/sshfs-inverse-rsshfs/>.
 
 ## Dependencies
 
-On the local host:
-
- * `vde2` (for `dpipe`)
-
 On the remote host:
 
  * `sshfs`
