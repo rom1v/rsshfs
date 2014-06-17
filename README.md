@@ -5,6 +5,10 @@ See <http://blog.rom1v.com/2014/06/sshfs-inverse-rsshfs/>.
 
 ## Dependencies
 
+On the local host:
+
+ * `openssh-sftp-server`
+
 On the remote host:
 
  * `sshfs`
