@@ -52,3 +52,5 @@ For unmounting:
 ~~~
 
 It should make the mounting command finish.
+
+Or more simply, by pressing `Ctrl+C` in the terminal of the mount command.
