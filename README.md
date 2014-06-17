@@ -36,10 +36,6 @@ It is possible to mount it in *read-only* mode:
 ./rsshfs /local/folder server:/remote/folder -o ro
 ~~~
 
-**Warning:** The read-only option is requested to the remote side, by an
-`sshfs` parameter. Therefore, a modified `sshfs` may ignore the *read-only*
-request. So you must trust the remote host.
-
 Contrary to `sshfs`, as `rsshfs` acts as a server, it does not return until the
 remote folder is unmounted.
 
