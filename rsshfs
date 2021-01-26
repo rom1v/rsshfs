@@ -15,6 +15,20 @@ printerr() {
     printf "$@" >&2
 }
 
+sftp_server_path() {
+    local searchpaths=(
+        "/usr/lib/openssh/sftp-server"      # Debian
+        "/usr/libexec/openssh/sftp-server"  # Fedora
+    )
+    for path in "${searchpaths[@]}"
+    do
+        [ -x "$path" ] && echo $path && return 0
+    done
+
+    printerr "Error: could not find 'sftp-server'\n"
+    exit 1
+}
+
 if [[ $# -lt 2 ]]
 then
     printerr "Error: missing parameters\n"
@@ -58,7 +72,7 @@ else
     fifo=/tmp/rsshfs-$$
     rm -f "$fifo"
     mkfifo -m600 "$fifo" &&
-    < "$fifo" /usr/lib/openssh/sftp-server "${sftpargs[@]}" |
+    < "$fifo" "$(sftp_server_path)" "${sftpargs[@]}" |
       ssh "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall" > "$fifo"
     rm "$fifo"
 fi
