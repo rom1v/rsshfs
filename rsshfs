@@ -11,12 +11,16 @@ quote() {
     [[ $# != 0 ]] && printf '%q ' "$@" | sed 's/.$//'
 }
 
+printerr() {
+    printf "$@" >&2
+}
+
 if [[ $# -lt 2 ]]
 then
-    printf "Error: missing parameters\n" >&2
-    printf "Usage:\n" >&2
-    printf "  $0 <localpath> <remotehost>:<remotepath> [-o ro]\n" >&2
-    printf "  $0 -u <remotehost>:<remotepath>\n" >&2
+    printerr "Error: missing parameters\n"
+    printerr "Usage:\n"
+    printerr "  $0 <localpath> <remotehost>:<remotepath> [-o ro]\n"
+    printerr "  $0 -u <remotehost>:<remotepath>\n"
     exit 1;
 fi
 
