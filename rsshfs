@@ -2,59 +2,163 @@
 # Reverse sshfs (GPLv3)
 #
 # Usage:
-#   rsshfs <localpath> <remotehost>:<remotepath> [-o ro]
-#   rsshfs -u <remotehost>:<remotepath>
+#   rsshfs --help
 #
 # Romain Vimont (®om) <rom@rom1v.com>
+# Cedric Rochat <rochatc@gmail.com>
 
 quote() {
-    [[ $# != 0 ]] && printf '%q ' "$@" | sed 's/.$//'
+	[[ $# != 0 ]] && printf '%q ' "$@" | sed 's/.$//'
 }
 
-if [[ $# -lt 2 ]]
-then
-    printf "Error: missing parameters\n" >&2
-    printf "Usage:\n" >&2
-    printf "  $0 <localpath> <remotehost>:<remotepath> [-o ro]\n" >&2
-    printf "  $0 -u <remotehost>:<remotepath>\n" >&2
-    exit 1;
+help() {
+	cat << EOF >&4
+Reverse SSH-mount a local directory to a remote node, without having to use an SSH tunnel.
+
+Usage:
+	MOUNT
+	=====
+	$0 [OPTION]... <localpath> <remotehost>:<remotepath>
+
+	UMOUNT
+	======
+	$0 -u [OPTION]... <remotehost>:<remotepath>
+
+	OPTION
+	======
+	-d,	--daemon					Daemon like. In case of MOUNT, it simply puts the process in background.
+	-u,	--umount					Unmount.
+	-h,	--help						Print this help page.
+	-q,	--quiet						Be quiet.
+	-v,	--verbose					Be verbose.
+	-o [OPT]						Add subprogram specific option. i.e. You can pass any SSH option here, like
+									-o IdentityFile=/path/to/your/ssh/private_key
+									-o StrictHostKeyChecking=no
+									...
+		ro						Mount in read-only mode.
+EOF
+}
+
+LOCAL_PATH=""
+REMOTE_HOST=""
+REMOTE_PATH=""
+SSH_ARGS=()
+SFTP_ARGS=()
+SSHFS_ARGS=()
+
+UMOUNT=0
+QUIET=0
+VERBOSE=0
+
+DAEMON=0
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+	case $1 in
+		-d|--daemon)
+			DAEMON=1
+			shift
+			;;
+		-u|--umount)
+			UMOUNT=1
+			shift
+			;;
+		-o)
+			if [[ "$2" = "ro" ]]; then
+				SFTP_ARGS+=("-R")
+
+				SSHFS_ARGS+=("-o")
+				SSHFS_ARGS+=("ro")
+			else
+				SSH_ARGS+=("-o")
+				SSH_ARGS+=("$2")
+			fi
+			shift
+			shift
+			;;
+		-h|--help)
+			help
+			exit 0
+			;;
+		-q|--quiet)
+			QUIET=1
+			shift
+			;;
+		-v|--verbose)
+			VERBOSE=1
+			shift
+			;;
+		*)
+			if [[ $UMOUNT -eq 0 && "$LOCAL_PATH" = "" ]]; then
+				LOCAL_PATH="$1"
+			elif [[ "$REMOTE_HOST" = "" && "$(echo $1 | grep -F ':')" != "" ]]; then
+				REMOTE_HOST=$(echo $1 | cut -d: -f1)
+				REMOTE_PATH=$(echo $1 | cut -d: -f2)
+			else
+				POSITIONAL+=("$1")
+			fi
+			shift
+			;;
+	esac
+done
+set -- "${POSITIONAL[@]}"
+
+if [[ $QUIET -eq 1 ]]; then
+	exec 1>/dev/null
+	exec 2>/dev/null
+elif [[ $VERBOSE -eq 0 ]]; then
+	exec 1>/dev/null
+fi
+exec 3>&1
+exec 4>&2
+
+if [[ (( $UMOUNT -eq 0 && (( "$LOCAL_PATH" = "" || "$REMOTE_HOST" = "" || "$REMOTE_PATH" = "" )) )) || (( $UMOUNT -eq 1 && (( "$REMOTE_HOST" = "" || "$REMOTE_PATH" = "" )) )) ]]; then
+	printf "Error: missing parameters\n" >&4
+	help
+
+	exit 1;
 fi
 
-lpath="$1"
-IFS=: read rhost rpath <<< "$2"
+SSHFS_ARGS+=("-o")
+SSHFS_ARGS+=("slave")
+
+
+lpath="$LOCAL_PATH"
+rhost="$REMOTE_HOST"
+rpath="$REMOTE_PATH"
 qrpath="$(quote "$rpath")"
 
-if [[ "-u" = "$lpath" ]]
-then
-    printf "Unmounting '$rhost:$rpath'...\n"
-    ssh "$rhost" fusermount -u "$qrpath"
+if [[ $UMOUNT -eq 1 ]]; then
+	printf "Unmounting '$rhost:$rpath'...\n" >&3
+	pid=$(ps axf | awk "/rsshfs.*$rhost:$(echo $rpath | sed 's/\//\\\//g')/" | grep -v "\-u" | awk '{print $1}')
+	fifo=/tmp/rsshfs-$pid
+	ssh ${SSH_ARGS[@]} "$rhost" fusermount -u "$qrpath" 1>&3 2>&4
+	if [[ -p $fifo ]]; then
+		rm -f "$fifo"
+	fi
 else
-    qlpath=$(quote "$lpath")
-    shift 2 # remove the two main pamars to keep the remainder
-    # warning: the array will be flatten to a string anyway
-    qall=$(quote "$@")
+	qlpath=$(quote "$lpath")
+	printf "Mounting '$lpath' on '$rhost:$rpath'...\n" >&3
 
-    # detect sshfs read-only from consecutive args '-o' 'ro'
-    unset readonly
-    args=("$@")
-    for (( i = 1; i < $#; i++ ))
-    do
-        if [[ "${args[$i]}" == ro && "${args[(($i-1))]}" == -o ]]
-        then
-            readonly=:
-            break
-        fi
-    done
+	fifo=/tmp/rsshfs-$$
 
-    # also set read-only on the server side (the local host)
-    unset sftpargs
-    [[ "$readonly" ]] && sftpargs=(-R)
+	if [[ -p $fifo ]]; then
+		rm -f "$fifo"
+	fi
 
-    printf "Mounting '$lpath' on '$rhost:$rpath'...\n"
-    fifo=/tmp/rsshfs-$$
-    rm -f "$fifo"
-    mkfifo -m600 "$fifo" &&
-    < "$fifo" /usr/lib/openssh/sftp-server "${sftpargs[@]}" |
-      ssh "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall" > "$fifo"
-    rm "$fifo"
+	mkfifo -m600 "$fifo"
+	ret=$?
+	if [[ $ret -eq 0 ]]; then
+		if [[ $DAEMON -eq 1 ]]; then
+			(< "$fifo" /usr/lib/openssh/sftp-server ${SFTP_ARGS[@]} |
+				ssh ${SSH_ARGS[@]} "$rhost" sshfs ${SSHFS_ARGS[@]} ":$qlpath" "$qrpath" > "$fifo") 1>&3 2>&4 &
+		else
+			(< "$fifo" /usr/lib/openssh/sftp-server ${SFTP_ARGS[@]} |
+				ssh ${SSH_ARGS[@]} "$rhost" sshfs ${SSHFS_ARGS[@]} ":$qlpath" "$qrpath" > "$fifo") 1>&3 2>&4
+		fi
+
+		if [[ -p $fifo ]]; then
+			rm -f "$fifo"
+		fi
+	fi
 fi
