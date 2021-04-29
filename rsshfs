@@ -36,6 +36,9 @@ Usage:
 									-o IdentityFile=/path/to/your/ssh/private_key
 									-o StrictHostKeyChecking=no
 									...
+									You can also pass any SSHFS option, like
+									-o cache=no
+									...
 		ro						Mount in read-only mode.
 EOF
 }
