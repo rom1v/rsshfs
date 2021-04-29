@@ -12,7 +12,7 @@ quote() {
 }
 
 help() {
-	cat << EOF >&4
+	cat << EOF
 Reverse SSH-mount a local directory to a remote node, without having to use an SSH tunnel.
 
 Usage:
@@ -31,6 +31,7 @@ Usage:
 	-h,	--help						Print this help page.
 	-q,	--quiet						Be quiet.
 	-v,	--verbose					Be verbose.
+	-F [SSH_CONFIG_FILE]					Specify a SSH alternative per-user configuration file.
 	-o [OPT]						Add subprogram specific option. i.e. You can pass any SSH option here, like
 									-o IdentityFile=/path/to/your/ssh/private_key
 									-o StrictHostKeyChecking=no
@@ -63,15 +64,28 @@ while [[ $# -gt 0 ]]; do
 			UMOUNT=1
 			shift
 			;;
+		-F)
+			SSH_ARGS+=("-F")
+			SSH_ARGS+=("$2")
+			shift
+			shift
+			;;
 		-o)
-			if [[ "$2" = "ro" ]]; then
-				SFTP_ARGS+=("-R")
+			if [[ "$(echo $2 | grep -E '^[A-Z]')" != "" ]]; then
+				if [[ "$(echo $2 | grep -E '^SSHOPT')" != "" ]]; then
+					SSHFS_ARGS+=("-o")
+					SSHFS_ARGS+=("$2")
+				else
+					SSH_ARGS+=("-o")
+					SSH_ARGS+=("$2")
+				fi
+			elif [[ "$(echo $2 | grep -E '^[a-z]')" != "" ]]; then
+				if [[ "$2" = "ro" ]]; then
+					SFTP_ARGS+=("-R")
+				fi
 
 				SSHFS_ARGS+=("-o")
-				SSHFS_ARGS+=("ro")
-			else
-				SSH_ARGS+=("-o")
-				SSH_ARGS+=("$2")
+				SSHFS_ARGS+=("$2")
 			fi
 			shift
 			shift
@@ -113,15 +127,13 @@ exec 3>&1
 exec 4>&2
 
 if [[ (( $UMOUNT -eq 0 && (( "$LOCAL_PATH" = "" || "$REMOTE_HOST" = "" || "$REMOTE_PATH" = "" )) )) || (( $UMOUNT -eq 1 && (( "$REMOTE_HOST" = "" || "$REMOTE_PATH" = "" )) )) ]]; then
-	printf "Error: missing parameters\n" >&4
-	help
-
+	printf "Error: missing parameters. See $0 --help\n" >&4
 	exit 1;
 fi
 
 SSHFS_ARGS+=("-o")
 SSHFS_ARGS+=("slave")
-
+echo "${SSHFS_ARGS[@]}"
 
 lpath="$LOCAL_PATH"
 rhost="$REMOTE_HOST"
