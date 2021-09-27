@@ -147,7 +147,7 @@ if [[ $UMOUNT -eq 1 ]]; then
 	printf "Unmounting '$rhost:$rpath'...\n" >&3
 	pid=$(ps axf | awk "/rsshfs.*$rhost:$(echo $rpath | sed 's/\//\\\//g')/" | grep -v "\-u" | awk '{print $1}')
 	fifo=/tmp/rsshfs-$pid
-	ssh ${SSH_ARGS[@]} "$rhost" fusermount -u "$qrpath" 1>&3 2>&4
+	ssh ${SSH_ARGS[@]} -o ConnectTimeout=7 "$rhost" fusermount -u "$qrpath" 1>&3 2>&4
 	if [[ -p $fifo ]]; then
 		rm -f "$fifo"
 	fi
