@@ -2,7 +2,7 @@
 # Reverse sshfs (GPLv3)
 #
 # Usage:
-#   rsshfs <localpath> <remotehost>:<remotepath> [-o ro]
+#   rsshfs [-i identityfile] <localpath> <remotehost>:<remotepath> [-o ro]
 #   rsshfs -u <remotehost>:<remotepath>
 #
 # Romain Vimont (®om) <rom@rom1v.com>
@@ -20,6 +20,18 @@ then
     exit 1;
 fi
 
+# get optional identity file
+unset identity
+if [ "$1" = "-i" ]; then
+    if [ -f "$2" ]; then
+        identity="-i $2"
+        shift 2
+    else
+        echo "can't read identity file '$2'"
+        exit 1
+    fi
+fi
+    
 lpath="$1"
 IFS=: read rhost rpath <<< "$2"
 qrpath="$(quote "$rpath")"
@@ -55,6 +67,6 @@ else
     rm -f "$fifo"
     mkfifo -m600 "$fifo" &&
     < "$fifo" /usr/lib/openssh/sftp-server "${sftpargs[@]}" |
-      ssh "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall" > "$fifo"
+      ssh $identity "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall" > "$fifo"
     rm "$fifo"
 fi
