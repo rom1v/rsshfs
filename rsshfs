@@ -30,7 +30,7 @@ then
     ssh "$rhost" fusermount -u "$qrpath"
 else
     qlpath=$(quote "$lpath")
-    shift 2 # remove the two main pamars to keep the remainder
+    shift 2 # remove the two main params to keep the remainder
     # warning: the array will be flatten to a string anyway
     qall=$(quote "$@")
 
