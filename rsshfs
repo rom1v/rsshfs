@@ -7,8 +7,13 @@
 #
 # Romain Vimont (®om) <rom@rom1v.com>
 
+set -o pipefail -o errexit
+
 quote() {
-    [[ $# != 0 ]] && printf '%q ' "$@" | sed 's/.$//'
+    if (($#))
+    then
+        printf '%q ' "$@" | sed 's/.$//'
+    fi
 }
 
 if [[ $# -lt 2 ]]
@@ -21,40 +26,63 @@ then
 fi
 
 lpath="$1"
-IFS=: read rhost rpath <<< "$2"
+IFS=: read -r rhost rpath <<< "$2"
 qrpath="$(quote "$rpath")"
 
 if [[ "-u" = "$lpath" ]]
 then
-    printf "Unmounting '$rhost:$rpath'...\n"
-    ssh "$rhost" fusermount -u "$qrpath"
+    printf "Unmounting '%s:%s'...\n" "$rhost" "$rpath"
+    # fuse3 has fusermount3, fuse2 fusermount
+    ssh -- "$rhost" "fusermount3 -u $qrpath || fusermount -u $qrpath"
 else
     qlpath=$(quote "$lpath")
     shift 2 # remove the two main pamars to keep the remainder
     # warning: the array will be flatten to a string anyway
     qall=$(quote "$@")
 
-    # detect sshfs read-only from consecutive args '-o' 'ro'
+    # detect sshfs read-only from consecutive args '-o' 'ro' (or '-o x,ro')
     unset readonly
     args=("$@")
     for (( i = 1; i < $#; i++ ))
     do
-        if [[ "${args[$i]}" == ro && "${args[(($i-1))]}" == -o ]]
+        if [[ "${args[(($i-1))]}" == -o && "${args[$i]}" =~ (^|,)ro(,|$) ]]
         then
             readonly=:
             break
         fi
     done
 
-    # also set read-only on the server side (the local host)
-    unset sftpargs
-    [[ "$readonly" ]] && sftpargs=(-R)
+    # log every server-side open/request to stderr and set read-only on the
+    # server side (the local host)
+    sftpargs=(-e -l INFO)
+    [[ "$readonly" ]] && sftpargs+=(-R)
+
+    sftpserver=/usr/lib/openssh/sftp-server
+    workdir=$(mktemp -d)
+    trap 'rm -rf -- "$workdir"' EXIT
+
+    # sftp-server aborts without a passwd entry for the current uid; do
+    # not expose the real /etc/passwd to the remote
+    printf '%s:x:%s:%s::/:/bin/false\n' "$(id -un)" "$(id -u)" "$(id -g)" \
+        >"$workdir/passwd"
+    ro=(--ro-bind "$sftpserver" "$sftpserver")
+    while read -r l
+    do
+        ro+=(--ro-bind "$l" "$l")
+    done < <(ldd "$sftpserver" 2>/dev/null |
+             awk '{for(i=1;i<=NF;i++) if ($i ~ /^\//) print $i}')
+
+    fifo="$workdir/fifo"
+    mkfifo -m600 "$fifo"
 
     printf "Mounting '$lpath' on '$rhost:$rpath'...\n"
-    fifo=/tmp/rsshfs-$$
-    rm -f "$fifo"
-    mkfifo -m600 "$fifo" &&
-    < "$fifo" /usr/lib/openssh/sftp-server "${sftpargs[@]}" |
-      ssh "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall" > "$fifo"
-    rm "$fifo"
+
+    # on unmount the remote exits 0 while sftp-server then dies of EPIPE on the
+    # closed fifo (exit 1) so we need to disable pipefail here
+    set +o pipefail
+    < "$fifo" bwrap --die-with-parent --new-session --unshare-all \
+        --dev /dev "${ro[@]}" --ro-bind "$workdir/passwd" /etc/passwd \
+        --bind "$lpath" /share --chdir /share \
+        -- "$sftpserver" "${sftpargs[@]}" |
+      ssh -- "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall" > "$fifo"
 fi

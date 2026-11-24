@@ -7,6 +7,7 @@ See <https://blog.rom1v.com/2014/06/sshfs-inverse-rsshfs/>.
 
 On the local host:
 
+ * `bubblewrap`
  * `openssh-sftp-server`
 
 On the remote host:
